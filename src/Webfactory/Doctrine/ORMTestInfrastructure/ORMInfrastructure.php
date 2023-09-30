@@ -119,13 +119,6 @@ class ORMInfrastructure
     protected $namingStrategy = null;
 
     /**
-     * Callback that is used to load non-Doctrine annotations.
-     *
-     * @var \Closure
-     */
-    protected $annotationLoader = null;
-
-    /**
      * Factory that is used to create ORM configurations.
      *
      * @var ConfigurationFactory
@@ -221,10 +214,6 @@ class ORMInfrastructure
      */
     public function __construct($entityClasses, ConnectionConfiguration $connectionConfiguration = null)
     {
-        // Register the annotation loader before the dependency discovery process starts (if required).
-        // This ensures that the annotation loader is available for the entity resolver that reads the annotations.
-        $this->annotationLoader = $this->createAnnotationLoader();
-        $this->addAnnotationLoaderToRegistry($this->annotationLoader);
         if ($entityClasses instanceof \Traversable) {
             $entityClasses = iterator_to_array($entityClasses);
         }
@@ -410,71 +399,6 @@ class ORMInfrastructure
             $metadata[] = $metadataFactory->getMetadataFor($class);
         }
         return $metadata;
-    }
-
-    /**
-     * Restores the state of the annotation registry.
-     */
-    public function __destruct()
-    {
-        $this->removeAnnotationLoaderFromRegistry($this->annotationLoader);
-    }
-
-    /**
-     * Creates an annotation loader.
-     *
-     * The loader uses class_exists() to trigger the configured class loader.
-     * This ensures that all loadable annotation classes can be used and avoid
-     * dealing with annotation class white lists.
-     *
-     * @return \Closure
-     */
-    protected function createAnnotationLoader()
-    {
-        $loader = function ($annotationClass) {
-            return class_exists($annotationClass, true);
-        };
-        // Starting with PHP 5.4, the object context is bound to created closures. The context is not needed
-        // in the function above and as we will store the function in an attribute, this would create a
-        // circular reference between object and function. That would delay the garbage collection and
-        // the cleanup that happens in __destruct.
-        // To avoid these issues, we simply remove the context from the lambda function.
-        return $loader->bindTo(null);
-    }
-
-    /**
-     * Adds a custom annotation loader to Doctrine's AnnotationRegistry.
-     *
-     * @param \Closure $loader
-     */
-    protected function addAnnotationLoaderToRegistry(\Closure $loader)
-    {
-        AnnotationRegistry::registerLoader($loader);
-    }
-
-    /**
-     * Removes the loader that has been added to Doctrine's AnnotationRegistry.
-     *
-     * This requires some ugly reflection as the registry data is static and the loaders
-     * are not publicly accessible.
-     * Loaders are compared by identity, therefore, this will only work correctly with
-     * \Closure instances.
-     *
-     * @param \Closure $loader The loader that will be removed.
-     */
-    protected function removeAnnotationLoaderFromRegistry(\Closure $loader)
-    {
-        $reflection = new \ReflectionClass(AnnotationRegistry::class);
-        $annotationLoaderProperty = $reflection->getProperty('loaders');
-        $annotationLoaderProperty->setAccessible(true);
-        $activeLoaders = $annotationLoaderProperty->getValue();
-        foreach ($activeLoaders as $index => $activeLoader) {
-            /* @var $loader callable */
-            if ($activeLoader === $loader) {
-                unset($activeLoaders[$index]);
-            }
-        }
-        $annotationLoaderProperty->setValue(array_values($activeLoaders));
     }
 
     /**
